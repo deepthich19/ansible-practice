@@ -1,0 +1,115 @@
+#  Ansible Basics
+
+## What is Ansible
+
+A tool to configure many servers from one machine. You describe the state you want in a YAML file (a playbook), and Ansible makes the servers match it.
+
+- Agentless: nothing to install on the target servers
+- Connects over SSH
+- Idempotent: running it again changes nothing if the server is already correct
+
+## Lab Setup
+
+| Item | Details |
+|------|---------|
+| Control node | Ubuntu VM with Ansible, folder `~/ansible-practice` |
+| Target node | Ubuntu 22.04 VM at `192.168.56.102` |
+| Network | NAT adapter (internet) + Host-only adapter (Ansible access) |
+| Login | SSH key authentication |
+
+## Files
+
+```
+inventory             # list of servers to manage
+first-playbook.yml    # the playbook
+```
+
+Inventory:
+
+```
+192.168.56.102
+```
+
+Playbook:
+
+```yaml
+---
+- name: Install Nginx & start Nginx
+  hosts: all
+  become: yes
+
+  tasks:
+    - name: Install Nginx
+      apt:
+        name: nginx
+        state: present
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Start Nginx
+      service:
+        name: nginx
+        state: started
+        enabled: yes
+```
+
+## Commands
+
+```
+ansible-playbook -i inventory first-playbook.yml --syntax-check   # check YAML before running
+ansible-playbook -i inventory first-playbook.yml -K               # run, ask for sudo password
+ansible all -i inventory -m ping -b -K                            # test connection + sudo on all hosts
+curl http://192.168.56.102                                        # confirm Nginx is serving
+```
+
+## Key Concepts
+
+| Term | Meaning |
+|------|---------|
+| Inventory | File listing the servers |
+| Playbook | YAML file with the desired state |
+| Play | Tasks that run on a group of hosts |
+| Task | One action using one module |
+| Module | Built-in tool, e.g. `apt`, `service` |
+| Gathering Facts | Ansible collects info about the target first |
+| `become: yes` | Run tasks with sudo (as root by default) |
+| `become_user` | User to switch to, NOT the login user. Default is root |
+| `-K` | Ask for the sudo password at run time |
+| `update_cache` | Runs `apt update` before installing |
+| `enabled: yes` | Start the service after reboot too |
+
+## Two Different Passwords
+
+- SSH key login: removes the login password
+- Sudo: still needs a password unless NOPASSWD is set on the target
+
+SSH keys do not remove the sudo password. This caused my first error.
+
+## Errors I Fixed
+
+| # | Error | Cause | Fix |
+|---|-------|-------|-----|
+| 1 | `Missing sudo password` | `become` uses sudo, no password given | Run with `-K` |
+| 2 | `mapping values are not allowed in this context` | Spaces before `---`, wrong indentation | Rewrote YAML, started `---` at column 0 |
+| 3 | `Could not resolve 'in.archive.ubuntu.com'` | Target VM had no DNS | Set `DNS=8.8.8.8 1.1.1.1` in `/etc/systemd/resolved.conf`, restarted `systemd-resolved` |
+| 4 | `404 Not Found` on Nginx packages | Stale apt package list on target | `sudo apt update`, added `update_cache: yes` |
+
+## Debugging the Target VM
+
+```
+ip a                                  # check interfaces and IPs
+ip route                              # check default route (NAT should be 10.0.2.2)
+ping -c 2 8.8.8.8                     # internet works?
+ping -c 2 google.com                  # DNS works?
+resolvectl status                     # which DNS server is in use
+sudo systemctl restart systemd-resolved   # apply DNS change
+sudo apt update                       # refresh package list
+```
+
+## Lessons
+
+- Many failures are about the target server (network, DNS, apt), not Ansible
+- Linux names are case-sensitive: `nginx`, not `Nginx`
+- YAML uses spaces only, never tabs
+- A green recap is not proof. Verify with `curl`
+- Rerun the playbook: `changed=0` shows idempotency

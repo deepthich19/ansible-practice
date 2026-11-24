@@ -1,0 +1,17 @@
+---
+- name: Install Nginx & start Nginx
+  hosts: all
+  become: true
+
+  tasks:
+  - name: Install Nginx
+    apt:
+     name: nginx
+     state: present
+     update_cache: yes
+     cache_valid_time: 3600
+
+  - name: start Nginx
+    service:
+     name: nginx
+     state: started
